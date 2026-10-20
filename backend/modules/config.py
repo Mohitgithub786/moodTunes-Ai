@@ -3,12 +3,27 @@ Configuration Module
 Handles all environment variables and API configurations
 """
 import os
+import sys
 from dotenv import load_dotenv
 from typing import Optional
+
+# Ensure UTF-8 output on Windows
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import pylast
 from googleapiclient.discovery import build
 import google.generativeai as genai
-from deepgram import DeepgramClient
+try:
+    from deepgram import DeepgramClient
+except ImportError:
+    DeepgramClient = None
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +37,7 @@ class Config:
     YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     DEEPGRAM_API_KEY: str = os.getenv("DEEPGRAM_API_KEY", "")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "") or os.getenv("Groq_API_Key", "")
     
     # Server Configuration
     HOST: str = "0.0.0.0"
@@ -77,14 +93,18 @@ class Config:
         else:
             print("⚠️  Gemini API key not found")
         
-        # Initialize Deepgram - SIMPLIFIED INITIALIZATION
-        if cls.DEEPGRAM_API_KEY:
+        # Initialize Deepgram
+        if cls.DEEPGRAM_API_KEY and DeepgramClient:
             try:
-                # Simple initialization with just API key
-                cls.deepgram_client = DeepgramClient(cls.DEEPGRAM_API_KEY)
+                try:
+                    cls.deepgram_client = DeepgramClient(api_key=cls.DEEPGRAM_API_KEY)
+                except TypeError:
+                    cls.deepgram_client = DeepgramClient(cls.DEEPGRAM_API_KEY)
                 print("✅ Deepgram initialized successfully")
             except Exception as e:
                 print(f"❌ Deepgram initialization error: {e}")
+        elif not DeepgramClient:
+            print("⚠️  Deepgram SDK not installed")
         else:
             print("⚠️  Deepgram API key not found")
     

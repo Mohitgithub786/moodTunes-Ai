@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from datetime import datetime
 from collections import defaultdict
 import re
+import urllib.parse
 
 
 class RecommendationEngine:
@@ -174,12 +175,20 @@ class RecommendationEngine:
         
         return {'name': song_str, 'artist': ''}
     
-    def track_to_song(self, track, skip_youtube: bool = False) -> Song:
-        """Convert Last.fm track to Song"""
+    def track_to_song(self, track_or_info, skip_youtube: bool = False) -> Song:
+        """Convert Last.fm track or TopItem to Song without slow blocking HTTP calls"""
         title = ""
         artist_name = ""
-        url = None
         playcount = None
+        
+        weight = getattr(track_or_info, 'weight', None)
+        if weight is None and isinstance(track_or_info, (list, tuple)) and len(track_or_info) > 1:
+            weight = track_or_info[1]
+            track = track_or_info[0]
+        elif hasattr(track_or_info, 'item'):
+            track = track_or_info.item
+        else:
+            track = track_or_info
         
         try:
             title = track.title if hasattr(track, 'title') else str(track)
@@ -193,17 +202,16 @@ class RecommendationEngine:
         except Exception:
             artist_name = ""
         
-        try:
-            if hasattr(track, 'get_url'):
-                url = track.get_url()
-        except Exception:
-            pass
+        if artist_name and title:
+            url = f"https://www.last.fm/music/{urllib.parse.quote(artist_name)}/_/{urllib.parse.quote(title)}"
+        else:
+            url = None
         
-        try:
-            if hasattr(track, 'get_playcount'):
-                playcount = track.get_playcount()
-        except Exception:
-            pass
+        if weight is not None:
+            try:
+                playcount = int(weight)
+            except Exception:
+                playcount = None
         
         youtube_id = None
         if not skip_youtube and title and artist_name:
@@ -224,7 +232,7 @@ class RecommendationEngine:
             album=None,
             duration_ms=None,
             listeners=None,
-            playcount=int(playcount) if playcount else None,
+            playcount=playcount,
             tags=[],
             audio_features={}
         )
@@ -241,9 +249,9 @@ class RecommendationEngine:
             
             for track_info in top_tracks:
                 try:
-                    track_obj = track_info[0] if isinstance(track_info, (list, tuple)) else track_info
-                    song = self.track_to_song(track_obj, skip_youtube=True)
-                    songs.append(song)
+                    song = self.track_to_song(track_info, skip_youtube=True)
+                    if song and song.name:
+                        songs.append(song)
                 except Exception:
                     continue
         except Exception as e:
@@ -257,7 +265,6 @@ class RecommendationEngine:
         if not self.lastfm:
             return songs
         
-        # CRITICAL: Apply fuzzy matching
         corrected_artist = self.fuzzy_match_artist(artist_name)
         
         try:
@@ -266,46 +273,18 @@ class RecommendationEngine:
                 print(f"     🎭 Filtering by mood: {mood_filter}")
             
             artist = self.lastfm.get_artist(corrected_artist)
-            fetch_limit = limit * 3 if mood_filter else limit
-            top_tracks = artist.get_top_tracks()[:fetch_limit]
+            fetch_limit = limit * 2 if mood_filter else limit
+            top_tracks = artist.get_top_tracks(limit=fetch_limit)
             
             for track_info in top_tracks:
                 if len(songs) >= limit:
                     break
                     
                 try:
-                    track_obj = track_info[0] if isinstance(track_info, (list, tuple)) else track_info
-                    
-                    if mood_filter:
-                        try:
-                            track_tags = track_obj.get_tags() if hasattr(track_obj, 'get_tags') else []
-                            track_tag_names = [tag.name.lower() if hasattr(tag, 'name') else str(tag).lower() for tag in track_tags]
-                            mood_tags = [tag.lower() for tag in MoodDetector.get_mood_tags(mood_filter)]
-                            matches_mood = any(mood_tag in track_tag_names for mood_tag in mood_tags)
-                            
-                            track_title = track_obj.title.lower() if hasattr(track_obj, 'title') else str(track_obj).lower()
-                            mood_keywords = {
-                                'happy': ['happy', 'joy', 'celebration', 'party', 'dance', 'fun', 'upbeat'],
-                                'sad': ['sad', 'cry', 'tears', 'heartbreak', 'alone', 'lonely', 'miss'],
-                                'energetic': ['energy', 'power', 'rock', 'pump', 'workout', 'beast'],
-                                'calm': ['calm', 'peace', 'relax', 'soft', 'slow', 'soothing'],
-                                'romantic': ['love', 'romantic', 'heart', 'pyaar', 'ishq', 'mohabbat'],
-                                'intense': ['intense', 'powerful', 'dramatic', 'epic']
-                            }
-                            
-                            keyword_match = False
-                            if mood_filter in mood_keywords:
-                                keyword_match = any(keyword in track_title for keyword in mood_keywords[mood_filter])
-                            
-                            if track_tags and not matches_mood and not keyword_match:
-                                print(f"     ⊘ Skipped (mood mismatch): {track_obj.title}")
-                                continue
-                        except Exception:
-                            pass
-                    
-                    song = self.track_to_song(track_obj, skip_youtube=True)
-                    songs.append(song)
-                    print(f"     ✓ Added: {song.name} by {song.artist}")
+                    song = self.track_to_song(track_info, skip_youtube=True)
+                    if song and song.name:
+                        songs.append(song)
+                        print(f"     ✓ Added: {song.name} by {song.artist}")
                 except Exception as e:
                     print(f"     ✗ Error converting track: {e}")
                     continue
@@ -412,52 +391,23 @@ class RecommendationEngine:
         if not self.lastfm:
             return []
         
-        # Apply fuzzy matching
         corrected_artist = self.fuzzy_match_artist(artist)
         
         songs = []
         try:
             print(f"  🔍 Finding similar to: '{track_name}' by {corrected_artist}")
             track = self.lastfm.get_track(corrected_artist, track_name)
-            fetch_limit = limit * 3 if mood_filter else limit
-            similar = track.get_similar(limit=fetch_limit)
+            similar = track.get_similar(limit=limit)
             
             for similar_track in similar:
                 if len(songs) >= limit:
                     break
                     
                 try:
-                    track_obj = similar_track[0] if isinstance(similar_track, (list, tuple)) else similar_track
-                    
-                    if mood_filter:
-                        try:
-                            track_tags = track_obj.get_tags() if hasattr(track_obj, 'get_tags') else []
-                            track_tag_names = [tag.name.lower() if hasattr(tag, 'name') else str(tag).lower() for tag in track_tags]
-                            mood_tags = [tag.lower() for tag in MoodDetector.get_mood_tags(mood_filter)]
-                            matches_mood = any(mood_tag in track_tag_names for mood_tag in mood_tags)
-                            
-                            track_title = track_obj.title.lower() if hasattr(track_obj, 'title') else str(track_obj).lower()
-                            mood_keywords = {
-                                'happy': ['happy', 'joy', 'celebration', 'party', 'dance'],
-                                'sad': ['sad', 'cry', 'tears', 'heartbreak', 'alone'],
-                                'energetic': ['energy', 'power', 'rock', 'pump'],
-                                'calm': ['calm', 'peace', 'relax', 'soft'],
-                                'romantic': ['love', 'romantic', 'heart', 'pyaar'],
-                                'intense': ['intense', 'powerful', 'dramatic']
-                            }
-                            
-                            keyword_match = False
-                            if mood_filter in mood_keywords:
-                                keyword_match = any(keyword in track_title for keyword in mood_keywords[mood_filter])
-                            
-                            if track_tags and not matches_mood and not keyword_match:
-                                continue
-                        except Exception:
-                            pass
-                    
-                    song = self.track_to_song(track_obj, skip_youtube=True)
-                    songs.append(song)
-                    print(f"     ✓ Similar: {song.name}")
+                    song = self.track_to_song(similar_track, skip_youtube=True)
+                    if song and song.name:
+                        songs.append(song)
+                        print(f"     ✓ Similar: {song.name}")
                 except Exception:
                     continue
                     

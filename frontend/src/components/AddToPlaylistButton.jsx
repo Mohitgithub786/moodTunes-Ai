@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
 const AddToPlaylistButton = ({ song, compact = false }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -10,7 +11,7 @@ const AddToPlaylistButton = ({ song, compact = false }) => {
   const [newPlaylistName, setNewPlaylistName] = useState('');
   
   const { isAuthenticated } = useSelector((state) => state.auth);
-  const API_URL = 'https://abhishek2607-music-rec-backend.hf.space';
+  const API_URL = API_BASE_URL;
 
   useEffect(() => {
     if (isOpen && isAuthenticated) {
@@ -46,7 +47,8 @@ const AddToPlaylistButton = ({ song, compact = false }) => {
       setIsOpen(false);
     } catch (error) {
       console.error('Error adding song:', error);
-      alert('Failed to add song to playlist');
+      const detail = error.response?.data?.detail || 'Failed to add song to playlist';
+      alert(detail);
     }
   };
 
@@ -56,6 +58,10 @@ const AddToPlaylistButton = ({ song, compact = false }) => {
 
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        alert('Please log in to create a playlist');
+        return;
+      }
       
       // Create playlist with the song
       const response = await axios.post(
@@ -76,7 +82,8 @@ const AddToPlaylistButton = ({ song, compact = false }) => {
       setIsOpen(false);
     } catch (error) {
       console.error('Error creating playlist:', error);
-      alert('Failed to create playlist');
+      const detail = error.response?.data?.detail || 'Failed to create playlist';
+      alert(detail);
     }
   };
 

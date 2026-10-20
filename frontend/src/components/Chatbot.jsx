@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
 const Chatbot = ({ isOpen, onToggle, currentMood, onPlaySong, onPlayPlaylist }) => {
   // Load messages from sessionStorage on mount
@@ -26,8 +27,6 @@ const Chatbot = ({ isOpen, onToggle, currentMood, onPlaySong, onPlayPlaylist }) 
   const messagesEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-
-  const API_BASE_URL = import.meta.env.VITE_API_URL || "https://abhishek2607-music-rec-backend.hf.space";
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

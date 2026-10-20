@@ -7,6 +7,10 @@ import requests
 from typing import Optional
 from .config import Config
 
+import re
+import urllib.parse
+import urllib.request
+
 class MusicPlayer:
     
     def __init__(self):
@@ -15,6 +19,7 @@ class MusicPlayer:
         self.youtube = Config.get_youtube()
     
     def load_cache(self) -> dict:
+        
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, 'r', encoding='utf-8') as f:
@@ -29,13 +34,29 @@ class MusicPlayer:
                 json.dump(self.cache, f, indent=2)
         except:
             pass
+
+    def get_youtube_id_direct(self, query: str) -> Optional[str]:
+        """Direct YouTube search fallback if API quota is reached"""
+        try:
+            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query + ' official')}"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                html = resp.read().decode('utf-8', errors='ignore')
+                video_ids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+                if video_ids:
+                    return video_ids[0]
+        except Exception:
+            pass
+        return None
     
     def get_youtube_id_invidious(self, query: str) -> Optional[str]:
-        """Try Invidious instances - with better error handling"""
+        """Try Invidious instances - with short timeout"""
         instances = [
             "https://inv.tux.pizza",
-            "https://invidious.fdn.fr",
-            "https://inv.riverside.rocks"
+            "https://invidious.fdn.fr"
         ]
         
         for instance in instances:
@@ -43,7 +64,7 @@ class MusicPlayer:
                 response = requests.get(
                     f"{instance}/api/v1/search",
                     params={"q": f"{query} official", "type": "video"},
-                    timeout=2  # Reduced timeout
+                    timeout=1
                 )
                 
                 if response.status_code == 200:
@@ -58,7 +79,7 @@ class MusicPlayer:
                         if video_id:
                             return video_id
             except:
-                continue  # Silently fail and try next instance
+                continue
         
         return None
     
@@ -92,6 +113,10 @@ class MusicPlayer:
         # Try official API first (more reliable)
         video_id = self.get_youtube_id_official(query)
         
+        # Fallback to direct web search
+        if not video_id:
+            video_id = self.get_youtube_id_direct(query)
+
         # Fallback to Invidious
         if not video_id:
             video_id = self.get_youtube_id_invidious(query)

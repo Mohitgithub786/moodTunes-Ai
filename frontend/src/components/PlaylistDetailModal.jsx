@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
 const PlaylistDetailModal = ({ isOpen, onClose, playlist, onUpdate }) => {
   const [songs, setSongs] = useState([]);
@@ -7,22 +8,29 @@ const PlaylistDetailModal = ({ isOpen, onClose, playlist, onUpdate }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
-    name: playlist.name,
-    description: playlist.description || '',
-    mood: playlist.mood || ''
+    name: playlist?.name || '',
+    description: playlist?.description || '',
+    mood: playlist?.mood || ''
   });
   const playerRef = useRef(null);
   const checkIntervalRef = useRef(null);
 
-  const API_URL = 'https://abhishek2607-music-rec-backend.hf.space';
+  const API_URL = API_BASE_URL;
 
   useEffect(() => {
-    if (playlist?.songs) {
-      setSongs(playlist.songs);
-      // Auto-play first song
-      if (playlist.songs.length > 0 && !currentSong) {
-        setCurrentSong(playlist.songs[0]);
-        setCurrentIndex(0);
+    if (playlist) {
+      setEditForm({
+        name: playlist.name || '',
+        description: playlist.description || '',
+        mood: playlist.mood || ''
+      });
+      if (playlist.songs) {
+        setSongs(playlist.songs);
+        // Auto-play first song
+        if (playlist.songs.length > 0 && !currentSong) {
+          setCurrentSong(playlist.songs[0]);
+          setCurrentIndex(0);
+        }
       }
     }
   }, [playlist]);

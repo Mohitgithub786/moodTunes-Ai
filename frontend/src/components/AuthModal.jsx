@@ -1,7 +1,11 @@
 import { useState } from 'react';
+import { useDispatch } from 'react-redux';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
+import { setCredentials } from '../store/authSlice';
 
 const AuthModal = ({ isOpen, onClose, onSuccess }) => {
+  const dispatch = useDispatch();
   const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
     email: '',
@@ -11,7 +15,7 @@ const AuthModal = ({ isOpen, onClose, onSuccess }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const API_URL = 'https://abhishek2607-music-rec-backend.hf.space';
+  const API_URL = API_BASE_URL;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,11 +30,10 @@ const AuthModal = ({ isOpen, onClose, onSuccess }) => {
 
       const response = await axios.post(`${API_URL}${endpoint}`, payload);
       
-      // Save token to localStorage
-      localStorage.setItem('token', response.data.access_token);
-      localStorage.setItem('user', JSON.stringify(response.data.user));
+      // Update Redux store and localStorage
+      dispatch(setCredentials(response.data));
       
-      onSuccess(response.data);
+      if (onSuccess) onSuccess(response.data);
       onClose();
       
     } catch (err) {

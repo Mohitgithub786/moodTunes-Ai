@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
 const MusicPreferences = ({ mood, onPreferencesSet }) => {
   const [language, setLanguage] = useState('');
@@ -12,7 +13,7 @@ const MusicPreferences = ({ mood, onPreferencesSet }) => {
 
   const languages = ['Hindi', 'English'];
   
-  const BACKEND_URL = 'https://abhishek2607-music-rec-backend.hf.space';
+  const BACKEND_URL = API_BASE_URL;
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
   

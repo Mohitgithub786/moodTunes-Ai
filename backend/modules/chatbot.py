@@ -1,5 +1,12 @@
 """ Enhanced Chatbot - Better Song Detection, Recommendations, and Playlist Support """
+import sys
 import os
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from dotenv import load_dotenv
 import google.generativeai as genai
 from groq import Groq
@@ -20,18 +27,26 @@ class MusicChatbot:
             self.gemini_model = None
             
         # Initialize Groq
-        groq_api_key = os.getenv('GROQ_API_KEY')
+        groq_api_key = os.getenv('GROQ_API_KEY') or os.getenv('Groq_API_Key')
         if groq_api_key:
-            self.groq_client = Groq(api_key=groq_api_key)
+            try:
+                self.groq_client = Groq(api_key=groq_api_key)
+                print("✅ Groq client initialized")
+            except Exception as e:
+                print(f"❌ Groq init failed: {e}")
+                self.groq_client = None
         else:
+            print("⚠️  GROQ_API_KEY not found")
             self.groq_client = None
             
         if not gemini_api_key and not groq_api_key:
             raise ValueError("Either GEMINI_API_KEY or GROQ_API_KEY must be found in environment variables")
         
-        self.current_provider = 'gemini' if self.gemini_model else 'groq'
+        self.current_provider = 'groq' if self.groq_client else 'gemini'
+        print(f"🤖 Chatbot initialized with provider: {self.current_provider}")
         self.model = self.gemini_model
         self.chat = None
+        self._cached_groq_model = None
         self.conversation_history: List[Dict] = []
         self.system_prompt = """You are MelodyMind, an AI music assistant that helps users find and play music.
 
@@ -110,13 +125,21 @@ You: "Here are some great Coldplay tracks:
 [RECOMMEND: Viva la Vida - Coldplay]
 [RECOMMEND: Fix You - Coldplay]"
 
+User: "Recommend me some music of Arijit Singh"
+You: "Here are some popular tracks by Arijit Singh:
+[RECOMMEND: Tum Hi Ho - Arijit Singh]
+[RECOMMEND: Channa Mereya - Arijit Singh]
+[RECOMMEND: Kesariya - Arijit Singh]
+[RECOMMEND: Shayad - Arijit Singh]
+[RECOMMEND: Gerua - Arijit Singh]"
+
 User: "Songs by Taylor Swift"
 You: "Here are popular Taylor Swift songs:
 [RECOMMEND: Shake It Off - Taylor Swift]
 [RECOMMEND: Blank Space - Taylor Swift]
 [RECOMMEND: Anti-Hero - Taylor Swift]"
 
-Remember: Be helpful, friendly, and music-focused!"""
+Remember: Always use standard ASCII hyphen (-) between song and artist. Always include singer/artist name. Be helpful, friendly, and music-focused!"""
         
         self._initialize_chat()
 
@@ -138,6 +161,32 @@ Remember: Be helpful, friendly, and music-focused!"""
         self.current_provider = 'groq'
         print("Switched to Groq API")
 
+    def _get_best_groq_model(self) -> str:
+        """Find best available Groq model"""
+        if getattr(self, '_cached_groq_model', None):
+            return self._cached_groq_model
+
+        candidates = [
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.8-27b",
+            "llama-3.3-70b-versatile",
+            "openai/gpt-oss-120b",
+            "llama-3.1-8b-instant"
+        ]
+        try:
+            available_models = [m.id for m in self.groq_client.models.list().data]
+            for cand in candidates:
+                if cand in available_models:
+                    self._cached_groq_model = cand
+                    return cand
+            if available_models:
+                self._cached_groq_model = available_models[0]
+                return available_models[0]
+        except Exception:
+            pass
+        self._cached_groq_model = "openai/gpt-oss-20b"
+        return self._cached_groq_model
+
     def _get_groq_response(self, user_message: str) -> str:
         """Get response from Groq"""
         messages = [{"role": "system", "content": self.system_prompt}]
@@ -150,14 +199,25 @@ Remember: Be helpful, friendly, and music-focused!"""
         
         messages.append({"role": "user", "content": user_message})
         
+        model_name = self._get_best_groq_model()
+        print(f"📡 Sending request to Groq (model: {model_name})...")
         response = self.groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=model_name,
             messages=messages,
             temperature=0.7,
-            max_tokens=1024
+            max_tokens=1024,
+            timeout=30
         )
-        
+        print("Groq response received")
         return response.choices[0].message.content
+
+    def _split_song_artist(self, raw_str: str) -> tuple:
+        """Split a song string by any dash variant (-, –, —, −), colon, or 'by'"""
+        cleaned = re.sub(r'[\s\u2000-\u200f\u202f\u00a0]+', ' ', raw_str).strip()
+        parts = re.split(r'\s*(?:[\-–—−:]|\bby\b)\s*', cleaned, maxsplit=1)
+        if len(parts) >= 2:
+            return parts[0].strip(), parts[1].strip()
+        return parts[0].strip(), ""
 
     def extract_play_command(self, response: str) -> Optional[Dict[str, str]]:
         """
@@ -165,14 +225,16 @@ Remember: Be helpful, friendly, and music-focused!"""
         Format: [PLAY: Song Name - Artist Name]
         Returns: {"name": str, "artist": str, "autoplay": True} or None
         """
-        pattern = r'\[PLAY:\s*([^\-]+?)\s*-\s*([^\]]+?)\s*\]'
-        match = re.search(pattern, response)
+        match = re.search(r'\[PLAY:\s*([^\]]+?)\s*\]', response, re.IGNORECASE)
         if match:
-            return {
-                "name": match.group(1).strip(),
-                "artist": match.group(2).strip(),
-                "autoplay": True
-            }
+            raw_content = match.group(1).strip()
+            name, artist = self._split_song_artist(raw_content)
+            if name:
+                return {
+                    "name": name,
+                    "artist": artist,
+                    "autoplay": True
+                }
         return None
 
     def extract_playlist_command(self, response: str) -> Optional[str]:
@@ -182,7 +244,7 @@ Remember: Be helpful, friendly, and music-focused!"""
         Returns: playlist name or None
         """
         pattern = r'\[PLAYLIST:\s*([^\]]+?)\s*\]'
-        match = re.search(pattern, response)
+        match = re.search(pattern, response, re.IGNORECASE)
         if match:
             return match.group(1).strip()
         return None
@@ -191,15 +253,29 @@ Remember: Be helpful, friendly, and music-focused!"""
         """
         Extract RECOMMEND commands from response
         Format: [RECOMMEND: Song Name - Artist Name]
+        Supports all dash types (-, –, —, −), 'by', and bullet fallbacks.
         """
         songs = []
-        pattern = r'\[RECOMMEND:\s*([^\-]+?)\s*-\s*([^\]]+?)\s*\]'
-        matches = re.findall(pattern, response)
+        matches = re.findall(r'\[RECOMMEND:\s*([^\]]+?)\s*\]', response, re.IGNORECASE)
         for match in matches:
-            songs.append({
-                "name": match[0].strip(),
-                "artist": match[1].strip()
-            })
+            name, artist = self._split_song_artist(match)
+            if name:
+                songs.append({
+                    "name": name,
+                    "artist": artist
+                })
+
+        # Fallback: if no [RECOMMEND] tags used, look for numbered or bulleted lines
+        if not songs:
+            line_pattern = r'^\s*(?:\d+[\.\)]|[\*\-•])\s+["\']?([^"\'\n–—\-]+?)["\']?\s*(?:[\-–—−]|\bby\b)\s+["\']?([^"\'\n\(\)]+?)["\']?\s*$'
+            for line in response.split('\n'):
+                m = re.match(line_pattern, line.strip())
+                if m:
+                    s_name = m.group(1).strip()
+                    s_artist = m.group(2).strip()
+                    if s_name and len(s_name) > 1:
+                        songs.append({"name": s_name, "artist": s_artist})
+
         return songs
 
     def chat_with_user(self, user_message: str) -> Dict:
@@ -213,17 +289,14 @@ Remember: Be helpful, friendly, and music-focused!"""
                     response = self.chat.send_message(user_message)
                     bot_response = response.text
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if any(keyword in error_msg for keyword in ['quota', 'limit', 'rate', '429', 'resource_exhausted']):
-                        if self.groq_client:
-                            self._switch_to_groq()
-                            bot_response = self._get_groq_response(user_message)
-                        else:
-                            raise Exception("Gemini limit reached and Groq not configured")
+                    print(f"⚠️  Gemini request failed: {e}")
+                    if self.groq_client:
+                        self._switch_to_groq()
+                        bot_response = self._get_groq_response(user_message)
                     else:
                         raise e
             # Use Groq
-            elif self.current_provider == 'groq' and self.groq_client:
+            elif self.groq_client:
                 bot_response = self._get_groq_response(user_message)
             else:
                 raise Exception("No API provider available")
@@ -249,9 +322,13 @@ Remember: Be helpful, friendly, and music-focused!"""
 
             # Clean display text
             display_text = bot_response
-            display_text = re.sub(r'\[PLAY:[^\]]+\]', '', display_text)
-            display_text = re.sub(r'\[PLAYLIST:[^\]]+\]', '', display_text)
-            display_text = re.sub(r'\[RECOMMEND:[^\]]+\]', '', display_text)
+            display_text = re.sub(r'\[PLAY:[^\]]+\]', '', display_text, flags=re.IGNORECASE)
+            display_text = re.sub(r'\[PLAYLIST:[^\]]+\]', '', display_text, flags=re.IGNORECASE)
+            if recommendations:
+                display_text = re.sub(r'\[RECOMMEND:[^\]]+\]', '', display_text, flags=re.IGNORECASE)
+            else:
+                display_text = re.sub(r'\[RECOMMEND:\s*([^\]]+?)\]', r'🎵 \1', display_text, flags=re.IGNORECASE)
+            display_text = re.sub(r'[\u2000-\u200f\u202f\u00a0]', ' ', display_text)
             display_text = re.sub(r'\n\s*\n+', '\n\n', display_text).strip()
 
             return {

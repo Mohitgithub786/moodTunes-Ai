@@ -1,7 +1,13 @@
-"""
-Main Application File - Modular Backend
-MoodTunes AI - Music Recommendation System
-"""
+import sys
+# Ensure UTF-8 output on Windows to prevent UnicodeEncodeError with emojis
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
@@ -131,17 +137,17 @@ async def get_available_moods():
 # ===========================================================
 @app.post("/api/personalized-recommendations")
 async def get_personalized_recommendations(request: PersonalizedRecommendationRequest):
-    return recommendation_engine.get_personalized_recommendations(request)
+    return await asyncio.to_thread(recommendation_engine.get_personalized_recommendations, request)
 
 
 @app.post("/api/recommendations", response_model=Dict)
 async def get_basic_recommendations(request: RecommendationRequest):
-    return recommendation_engine.get_basic_recommendations(request)
+    return await asyncio.to_thread(recommendation_engine.get_basic_recommendations, request)
 
 
 @app.get("/search-music")
 async def search_music(query: str, limit: int = 5):
-    results = recommendation_engine.search_music(query, limit)
+    results = await asyncio.to_thread(recommendation_engine.search_music, query, limit)
     return {"results": results, "total": len(results), "query": query}
 
 
@@ -155,7 +161,7 @@ async def search_specific_song(name: str, artist: Optional[str] = None):
         
         # Use direct YouTube search (fast)
         query = f"{artist} {name}" if artist else name
-        results = recommendation_engine.search_music(query, limit=1)
+        results = await asyncio.to_thread(recommendation_engine.search_music, query, limit=1)
         
         if not results or len(results) == 0:
             raise HTTPException(status_code=404, detail=f"Song '{name}' not found")
@@ -175,11 +181,16 @@ async def search_specific_song(name: str, artist: Optional[str] = None):
 
 @app.get("/similar-songs")
 async def get_similar_songs(song_name: str, artist: Optional[str] = None, limit: int = 10):
-    track = recommendation_engine.search_track(song_name, artist)
+    track = await asyncio.to_thread(recommendation_engine.search_track, song_name, artist)
     if not track:
         raise HTTPException(status_code=404, detail="Song not found")
 
-    similars = recommendation_engine.get_similar_tracks(track, limit=limit)
+    similars = await asyncio.to_thread(
+        recommendation_engine.get_similar_tracks,
+        track.name,
+        track.artist,
+        limit=limit
+    )
     return {"original_song": track, "similar_songs": similars}
 
 
@@ -188,7 +199,7 @@ async def get_similar_songs(song_name: str, artist: Optional[str] = None, limit:
 # ===========================================================
 @app.get("/youtube/search")
 async def search_youtube(song_name: str, artist: str):
-    result = music_player.search_and_get_url(song_name, artist)
+    result = await asyncio.to_thread(music_player.search_and_get_url, song_name, artist)
     if not result:
         raise HTTPException(status_code=404, detail="YouTube video not found")
     return result
@@ -210,7 +221,7 @@ async def clear_youtube_cache():
 # ===========================================================
 @app.post("/chat")
 async def chat_with_bot(message: ChatMessage):
-    result = chatbot.chat_with_user(message.message)
+    result = await asyncio.to_thread(chatbot.chat_with_user, message.message)
     return {
         "response": result["response"],
         "play_command": result.get("play_command"),
@@ -301,6 +312,11 @@ async def login(user_data: UserLogin):
 async def get_me(current_user: dict = Depends(get_current_user)):
     user = await user_service.get_user_by_id(current_user["user_id"])
     return UserResponse(**user)
+
+
+@app.post("/auth/logout")
+async def logout():
+    return {"message": "Logged out successfully"}
 
 
 # ===========================================================

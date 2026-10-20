@@ -1,7 +1,8 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://abhishek2607-music-rec-backend.hf.space';
+const API_URL = API_BASE_URL;
 
 // Load user from localStorage
 const userFromStorage = localStorage.getItem('user');
@@ -53,6 +54,18 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    setCredentials: (state, action) => {
+      state.isLoading = false;
+      state.isAuthenticated = true;
+      state.user = action.payload.user;
+      state.token = action.payload.access_token || action.payload.token;
+      if (action.payload.user) {
+        localStorage.setItem('user', JSON.stringify(action.payload.user));
+      }
+      if (action.payload.access_token || action.payload.token) {
+        localStorage.setItem('token', action.payload.access_token || action.payload.token);
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -99,5 +112,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { clearError } = authSlice.actions;
+export const { clearError, setCredentials } = authSlice.actions;
 export default authSlice.reducer;

@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { logout } from '../store/authSlice'
 import axios from 'axios'
+import { API_BASE_URL } from '../config/api'
 
 const Header = ({ onPlaySong }) => {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -14,7 +15,7 @@ const Header = ({ onPlaySong }) => {
   const navigate = useNavigate()
   const { user, isAuthenticated } = useSelector((state) => state.auth)
 
-  const BACKEND_URL = import.meta.env.VITE_API_URL || 'https://abhishek2607-music-rec-backend.hf.space'
+  const BACKEND_URL = API_BASE_URL
 
   const handleLogout = () => {
     dispatch(logout())

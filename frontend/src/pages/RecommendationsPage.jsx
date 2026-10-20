@@ -11,6 +11,8 @@ const RecommendationsPage = () => {
   const [preferences, setPreferences] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const handlePlaySong = (song) => {
     localStorage.setItem('recommendations', JSON.stringify([song]));
@@ -37,12 +39,22 @@ const RecommendationsPage = () => {
   }, [navigate]);
 
   const handleRecommendations = (songs) => {
+    setError(null);
     setRecommendations(songs);
     localStorage.setItem('recommendations', JSON.stringify(songs));
 
     setTimeout(() => {
       if (songs?.length > 0) navigate('/player');
     }, 1500);
+  };
+
+  const handleRecommendationsError = (errMsg) => {
+    setError(errMsg || 'Failed to load recommendations. Please try again.');
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    setRetryCount(prev => prev + 1);
   };
 
   if (!mood || !preferences) {
@@ -106,51 +118,76 @@ const RecommendationsPage = () => {
             </div>
           </div>
 
-          {/* ⭐ Premium Loading Card */}
+          {/* ⭐ Premium Loading or Error Card */}
           <div className="mt-10 flex justify-center">
             <div className="w-full max-w-4xl p-12 rounded-3xl bg-gradient-to-br 
               from-slate-800/40 via-purple-900/20 to-slate-800/40 
               shadow-2xl border border-slate-700/40 backdrop-blur-2xl">
 
-              <div className="flex flex-col items-center animate-fadeIn">
-
-                {/* 🔥 Rotating Neon Loader */}
-                <div className="relative mb-8">
-                  <div className="w-28 h-28 rounded-full border-4 border-transparent 
-                    border-t-purple-500 border-l-pink-500 animate-spin-slow shadow-lg"></div>
-
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-4 h-4 rounded-full bg-pink-500 shadow-lg shadow-pink-500/50"></div>
+              {error ? (
+                <div className="flex flex-col items-center text-center animate-fadeIn py-6">
+                  <div className="w-20 h-20 bg-red-500/20 border border-red-500/30 rounded-full flex items-center justify-center mb-6">
+                    <span className="text-4xl">⚠️</span>
+                  </div>
+                  <h3 className="text-2xl font-bold text-white mb-2">Unable to Load Recommendations</h3>
+                  <p className="text-gray-400 text-sm max-w-md mb-6">{error}</p>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleRetry}
+                      className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold px-6 py-3 rounded-xl transition-all shadow-lg"
+                    >
+                      Try Again
+                    </button>
+                    <button
+                      onClick={() => navigate('/preferences')}
+                      className="bg-slate-700/60 hover:bg-slate-700 text-gray-300 font-semibold px-6 py-3 rounded-xl transition-all"
+                    >
+                      Back to Preferences
+                    </button>
                   </div>
                 </div>
+              ) : (
+                <div className="flex flex-col items-center animate-fadeIn">
+                  {/* 🔥 Rotating Neon Loader */}
+                  <div className="relative mb-8">
+                    <div className="w-28 h-28 rounded-full border-4 border-transparent 
+                      border-t-purple-500 border-l-pink-500 animate-spin-slow shadow-lg"></div>
 
-                {/* Typing Line */}
-                <p className="text-xl text-white font-semibold typing-animation mb-2">
-                  Please wait…
-                </p>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-4 h-4 rounded-full bg-pink-500 shadow-lg shadow-pink-500/50"></div>
+                    </div>
+                  </div>
 
-                {/* Fade-in Line */}
-                <p className="text-gray-300 text-sm animate-fadeTextSlow">
-                  We’re crafting a playlist that matches your vibe 🎶
-                </p>
+                  {/* Typing Line */}
+                  <p className="text-xl text-white font-semibold typing-animation mb-2">
+                    Please wait…
+                  </p>
 
-                {/* Delayed Subtle Line */}
-                <p className="text-gray-400 text-xs mt-1 italic animate-fadeTextDelay">
-                  This may take a little time…
-                </p>
+                  {/* Fade-in Line */}
+                  <p className="text-gray-300 text-sm animate-fadeTextSlow">
+                    We’re crafting a playlist that matches your vibe 🎶
+                  </p>
 
-                {/* Shimmer Progress Bar */}
-                <div className="mt-6 w-64 h-3 bg-slate-700/40 overflow-hidden rounded-full">
-                  <div className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 animate-shimmer"></div>
+                  {/* Delayed Subtle Line */}
+                  <p className="text-gray-400 text-xs mt-1 italic animate-fadeTextDelay">
+                    This may take a little time…
+                  </p>
+
+                  {/* Shimmer Progress Bar */}
+                  <div className="mt-6 w-64 h-3 bg-slate-700/40 overflow-hidden rounded-full">
+                    <div className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 animate-shimmer"></div>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Hidden actual recommendation loader */}
+              {/* Underlying recommendation fetcher */}
               <div className="hidden">
                 <Recommendations
+                  key={retryCount}
                   mood={mood}
                   preferences={preferences}
                   onRecommendations={handleRecommendations}
+                  onError={handleRecommendationsError}
                 />
               </div>
             </div>

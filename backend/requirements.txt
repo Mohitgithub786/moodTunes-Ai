@@ -10,6 +10,7 @@ python-dotenv
 opencv-python
 deepface>=0.0.93
 tensorflow-cpu>=2.16.0
+tf-keras
 numpy
 Pillow
 
@@ -19,8 +20,9 @@ google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
 
-# AI/LLM - Google Gemini
+# AI/LLM - Google Gemini & Groq
 google-generativeai
+groq
 
 # Utilities
 requests
@@ -34,4 +36,5 @@ motor
 pymongo
 bcrypt
 python-jose[cryptography]
+PyJWT
 passlib[bcrypt]

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
+import { logout } from '../store/authSlice';
 import Header from '../components/Header';
 import CreatePlaylistModal from '../components/CreatePlaylistModal';
 import PlaylistCard from '../components/PlaylistCard';
@@ -15,9 +17,10 @@ const PlaylistsPage = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   
   const { isAuthenticated } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
   const navigate = useNavigate();
 
-  const API_URL = 'https://abhishek2607-music-rec-backend.hf.space';
+  const API_URL = API_BASE_URL;
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -27,16 +30,29 @@ const PlaylistsPage = () => {
     fetchPlaylists();
   }, [isAuthenticated, navigate]);
 
+  const handleAuthError = () => {
+    dispatch(logout());
+    alert('Your session has expired or is invalid. Please log in again.');
+    navigate('/login');
+  };
+
   const fetchPlaylists = async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
+      if (!token) {
+        handleAuthError();
+        return;
+      }
       const response = await axios.get(`${API_URL}/api/playlists`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setPlaylists(response.data);
     } catch (error) {
       console.error('Error fetching playlists:', error);
+      if (error.response?.status === 401) {
+        handleAuthError();
+      }
     } finally {
       setLoading(false);
     }
@@ -45,6 +61,10 @@ const PlaylistsPage = () => {
   const handleCreatePlaylist = async (playlistData) => {
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        handleAuthError();
+        return;
+      }
       await axios.post(`${API_URL}/api/playlists`, playlistData, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -52,7 +72,12 @@ const PlaylistsPage = () => {
       setIsCreateModalOpen(false);
     } catch (error) {
       console.error('Error creating playlist:', error);
-      alert('Failed to create playlist');
+      if (error.response?.status === 401) {
+        handleAuthError();
+      } else {
+        const detail = error.response?.data?.detail || 'Failed to create playlist. Please try again.';
+        alert(detail);
+      }
     }
   };
 
@@ -61,13 +86,22 @@ const PlaylistsPage = () => {
     
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        handleAuthError();
+        return;
+      }
       await axios.delete(`${API_URL}/api/playlists/${playlistId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchPlaylists();
     } catch (error) {
       console.error('Error deleting playlist:', error);
-      alert('Failed to delete playlist');
+      if (error.response?.status === 401) {
+        handleAuthError();
+      } else {
+        const detail = error.response?.data?.detail || 'Failed to delete playlist';
+        alert(detail);
+      }
     }
   };
 

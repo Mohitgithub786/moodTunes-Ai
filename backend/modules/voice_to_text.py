@@ -1,42 +1,76 @@
 """
 Enhanced Voice to Text Module with Multilingual Support
-Handles voice transcription using Deepgram API with improved features
+Handles voice transcription using Deepgram API with compatibility for Deepgram SDK v5+ and legacy versions.
 """
+import asyncio
 from fastapi import UploadFile, HTTPException
 from modules.config import Config
-from deepgram import (
-    DeepgramClient,
-    PrerecordedOptions,
-    FileSource,
-)
-import io
 
 
 class VoiceToText:
     """Enhanced voice transcription handler with multilingual support"""
     
     def __init__(self):
-        self.deepgram = Config.get_deepgram()
-        if not self.deepgram:
-            print("⚠️  Deepgram client not initialized")
-        
-        # Supported languages for music queries
+        self._deepgram = None
         self.supported_languages = {
             'en': 'English',
             'hi': 'Hindi',
             'auto': 'Auto-detect'
         }
+
+    @property
+    def deepgram(self):
+        if self._deepgram is None:
+            self._deepgram = Config.get_deepgram()
+        return self._deepgram
     
+    def _call_deepgram(self, audio_data: bytes, language: str = 'auto', with_timestamps: bool = False):
+        """Execute Deepgram transcription call (runs in background thread)."""
+        client = self.deepgram
+        if not client:
+            raise RuntimeError("Deepgram client not initialized")
+
+        # Deepgram SDK v5+
+        if hasattr(client, 'listen') and hasattr(client.listen, 'v1') and hasattr(client.listen.v1, 'media'):
+            kwargs = {
+                "request": audio_data,
+                "model": "nova-2",
+                "smart_format": True,
+                "punctuate": True,
+            }
+            if language == 'auto':
+                kwargs["detect_language"] = True
+            else:
+                kwargs["language"] = language
+
+            if with_timestamps:
+                kwargs["utterances"] = True
+
+            return client.listen.v1.media.transcribe_file(**kwargs)
+
+        # Legacy Deepgram SDK (v3/v2) fallback
+        elif hasattr(client, 'listen') and hasattr(client.listen, 'prerecorded'):
+            payload = {"buffer": audio_data}
+            options = {
+                "model": "nova-2",
+                "smart_format": True,
+                "punctuate": True,
+            }
+            if language == 'auto':
+                options["detect_language"] = True
+            else:
+                options["language"] = language
+            if with_timestamps:
+                options["utterances"] = True
+            return client.listen.prerecorded.v("1").transcribe_file(payload, options)
+
+        else:
+            raise RuntimeError("Unsupported Deepgram SDK version")
+
     async def transcribe_audio(self, file: UploadFile, language: str = 'auto') -> str:
         """
-        Enhanced transcription with auto language detection
-        
-        Args:
-            file: Audio file (WAV, MP3, OGG, WEBM, etc.)
-            language: Language code ('en', 'hi', or 'auto' for detection)
-        
-        Returns:
-            str: Transcribed text with improved accuracy
+        Enhanced transcription with auto language detection.
+        Runs transcription in a worker thread so the event loop is never blocked.
         """
         if not self.deepgram:
             raise HTTPException(
@@ -45,88 +79,31 @@ class VoiceToText:
             )
         
         try:
-            # Read audio file
             audio_data = await file.read()
-            
-            # Validate audio data
-            if len(audio_data) == 0:
+            if not audio_data or len(audio_data) == 0:
                 raise HTTPException(
                     status_code=400,
                     detail="Empty audio file received"
                 )
             
-            # Prepare audio for Deepgram
-            payload: FileSource = {
-                "buffer": audio_data,
-            }
-            
-            # Enhanced transcription options
-            if language == 'auto':
-                # Auto-detect language (English or Hindi)
-                options = PrerecordedOptions(
-                    model="nova-2",
-                    detect_language=True,
-                    smart_format=True,
-                    punctuate=True,
-                    diarize=False,
-                    utterances=False,
-                    # Enhanced for music queries
-                    keywords=[
-                        "play:3",
-                        "song:3", 
-                        "artist:3",
-                        "recommend:3",
-                        "music:3",
-                        "hindi:2",
-                        "english:2",
-                        "bollywood:2"
-                    ],
-                    search=["play", "song", "music", "artist"]
-                )
-            else:
-                # Specific language
-                options = PrerecordedOptions(
-                    model="nova-2",
-                    language=language,
-                    smart_format=True,
-                    punctuate=True,
-                    diarize=False,
-                    utterances=False,
-                    keywords=[
-                        "play:3",
-                        "song:3", 
-                        "artist:3",
-                        "recommend:3",
-                        "music:3"
-                    ]
-                )
-            
-            # Transcribe with timeout handling
-            response = self.deepgram.listen.prerecorded.v("1").transcribe_file(
-                payload, options
-            )
-            
-            # Extract transcript and metadata
+            response = await asyncio.to_thread(self._call_deepgram, audio_data, language)
+
+            # Extract transcript from Deepgram response
             channel = response.results.channels[0]
-            transcript = channel.alternatives[0].transcript
+            transcript = channel.alternatives[0].transcript if channel.alternatives else ""
             
-            # Get detected language if auto-detect was used
-            detected_language = None
-            if language == 'auto' and hasattr(channel, 'detected_language'):
-                detected_language = channel.detected_language
+            detected_language = getattr(channel, 'detected_language', None)
+            if detected_language:
                 print(f"🌍 Detected language: {detected_language}")
             
-            # Validate transcript
             if not transcript or len(transcript.strip()) == 0:
                 raise HTTPException(
                     status_code=400,
                     detail="No speech detected in audio. Please speak clearly and try again."
                 )
             
-            # Clean and return transcript
             cleaned_transcript = transcript.strip()
             print(f"✅ Transcribed ({detected_language or language}): {cleaned_transcript}")
-            
             return cleaned_transcript
             
         except HTTPException:
@@ -134,40 +111,20 @@ class VoiceToText:
         except Exception as e:
             print(f"❌ Deepgram transcription error: {e}")
             error_msg = str(e)
-            
-            # User-friendly error messages
             if "timeout" in error_msg.lower():
                 detail = "Transcription timeout. Audio might be too long or unclear."
             elif "network" in error_msg.lower():
                 detail = "Network error. Please check your internet connection."
             else:
                 detail = f"Transcription failed: {error_msg}"
-            
             raise HTTPException(status_code=500, detail=detail)
-    
+
     async def transcribe_audio_hindi_english(self, file: UploadFile, language: str = "en") -> str:
-        """
-        Transcribe with specific language (Hindi or English)
-        
-        Args:
-            file: Audio file
-            language: Language code ("en" for English, "hi" for Hindi)
-        
-        Returns:
-            str: Transcribed text in specified language
-        """
+        """Transcribe with specific language (Hindi or English)."""
         return await self.transcribe_audio(file, language)
-    
+
     async def transcribe_audio_multilang(self, file: UploadFile) -> dict:
-        """
-        Auto-detect language and transcribe with detailed response
-        
-        Args:
-            file: Audio file
-        
-        Returns:
-            dict: Contains transcript, detected_language, and confidence
-        """
+        """Auto-detect language and transcribe with detailed response."""
         if not self.deepgram:
             raise HTTPException(
                 status_code=503,
@@ -175,49 +132,18 @@ class VoiceToText:
             )
         
         try:
-            # Read audio file
             audio_data = await file.read()
-            
-            if len(audio_data) == 0:
+            if not audio_data or len(audio_data) == 0:
                 raise HTTPException(
                     status_code=400,
                     detail="Empty audio file received"
                 )
             
-            # Prepare audio for Deepgram
-            payload: FileSource = {
-                "buffer": audio_data,
-            }
-            
-            # Configure with language detection
-            options = PrerecordedOptions(
-                model="nova-2",
-                detect_language=True,
-                smart_format=True,
-                punctuate=True,
-                diarize=False,
-                utterances=False,
-                keywords=[
-                    "play:3",
-                    "song:3", 
-                    "artist:3",
-                    "recommend:3",
-                    "music:3",
-                    "hindi:2",
-                    "bollywood:2"
-                ]
-            )
-            
-            # Transcribe
-            response = self.deepgram.listen.prerecorded.v("1").transcribe_file(
-                payload, options
-            )
-            
-            # Extract detailed information
+            response = await asyncio.to_thread(self._call_deepgram, audio_data, 'auto')
             channel = response.results.channels[0]
-            alternative = channel.alternatives[0]
-            transcript = alternative.transcript
-            confidence = alternative.confidence if hasattr(alternative, 'confidence') else None
+            alternative = channel.alternatives[0] if channel.alternatives else None
+            transcript = alternative.transcript if alternative else ""
+            confidence = getattr(alternative, 'confidence', None)
             detected_language = getattr(channel, 'detected_language', 'unknown')
             
             if not transcript or len(transcript.strip()) == 0:
@@ -232,9 +158,6 @@ class VoiceToText:
                 "confidence": confidence,
                 "language_name": self.supported_languages.get(detected_language, detected_language)
             }
-            
-            print(f"🌍 Multilang result: {result['detected_language']} - {result['transcript'][:50]}...")
-            
             return result
             
         except HTTPException:
@@ -245,17 +168,9 @@ class VoiceToText:
                 status_code=500,
                 detail=f"Transcription failed: {str(e)}"
             )
-    
+
     async def transcribe_with_timestamps(self, file: UploadFile) -> dict:
-        """
-        Transcribe with word-level timestamps (useful for music lyrics alignment)
-        
-        Args:
-            file: Audio file
-        
-        Returns:
-            dict: Transcript with word timestamps
-        """
+        """Transcribe with word-level timestamps."""
         if not self.deepgram:
             raise HTTPException(
                 status_code=503,
@@ -264,36 +179,24 @@ class VoiceToText:
         
         try:
             audio_data = await file.read()
-            
-            payload: FileSource = {
-                "buffer": audio_data,
-            }
-            
-            # Enable word timestamps
-            options = PrerecordedOptions(
-                model="nova-2",
-                detect_language=True,
-                smart_format=True,
-                punctuate=True,
-                utterances=True,  # Enable utterances for timestamps
-                diarize=False,
-            )
-            
-            response = self.deepgram.listen.prerecorded.v("1").transcribe_file(
-                payload, options
-            )
-            
+            if not audio_data or len(audio_data) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Empty audio file received"
+                )
+
+            response = await asyncio.to_thread(self._call_deepgram, audio_data, 'auto', True)
             channel = response.results.channels[0]
-            transcript = channel.alternatives[0].transcript
+            alternative = channel.alternatives[0] if channel.alternatives else None
+            transcript = alternative.transcript if alternative else ""
             
-            # Extract words with timestamps if available
             words_with_timestamps = []
-            if hasattr(channel.alternatives[0], 'words'):
-                for word_info in channel.alternatives[0].words:
+            if alternative and hasattr(alternative, 'words') and alternative.words:
+                for word_info in alternative.words:
                     words_with_timestamps.append({
-                        "word": word_info.word,
-                        "start": word_info.start,
-                        "end": word_info.end,
+                        "word": getattr(word_info, 'word', ''),
+                        "start": getattr(word_info, 'start', 0),
+                        "end": getattr(word_info, 'end', 0),
                         "confidence": getattr(word_info, 'confidence', None)
                     })
             
@@ -303,13 +206,15 @@ class VoiceToText:
                 "detected_language": getattr(channel, 'detected_language', 'unknown')
             }
             
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"❌ Timestamp transcription error: {e}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Transcription with timestamps failed: {str(e)}"
             )
-    
+
     def get_supported_languages(self) -> dict:
         """Get list of supported languages"""
         return self.supported_languages

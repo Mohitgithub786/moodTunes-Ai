@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import Webcam from 'react-webcam'
 import axios from 'axios'
+import { API_BASE_URL } from '../config/api'
 
 const MoodDetection = ({ onMoodDetected }) => {
   const [isCamera, setIsCamera] = useState(false)
@@ -8,7 +9,7 @@ const MoodDetection = ({ onMoodDetected }) => {
   const [detectedMood, setDetectedMood] = useState(null)
   const [confidence, setConfidence] = useState(0)
   const webcamRef = useRef(null)
-  const BASE_URL = "https://abhishek2607-music-rec-backend.hf.space"
+  const BASE_URL = API_BASE_URL
   const moods = [
     { name: 'Happy', emoji: '😊', gradient: 'from-yellow-500 to-orange-500' },
     { name: 'Sad', emoji: '😢', gradient: 'from-blue-500 to-indigo-600' },

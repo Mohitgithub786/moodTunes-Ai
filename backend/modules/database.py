@@ -23,20 +23,21 @@ async def connect_to_mongodb():
     """Connect to MongoDB and ensure indexes."""
     global _client, _database
     if not MONGODB_URL:
-        raise Exception("MONGODB_URL not set in environment")
+        print("⚠️  MONGODB_URL not set in environment. MongoDB features will be disabled.")
+        _database = None
+        return
 
     try:
-        _client = AsyncIOMotorClient(MONGODB_URL)
+        _client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=2000)
         _database = _client[DATABASE_NAME]
-        # test
+        # test connection with short timeout
         await _client.admin.command("ping")
         # indexes
         await _database.users.create_index("email", unique=True)
         print(f"✅ Connected to MongoDB: {DATABASE_NAME}")
     except Exception as e:
-        print(f"❌ MongoDB connection failed: {e}")
-        # Raise so app doesn't start in broken state
-        raise
+        print(f"⚠️  MongoDB connection failed: {e}. Auth and DB playlists will be unavailable.")
+        _database = None
 
 async def close_mongodb_connection():
     global _client
