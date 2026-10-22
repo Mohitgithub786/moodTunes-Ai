@@ -69,7 +69,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=Config.CORS_ORIGINS,
+    allow_origin_regex=r".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -97,7 +97,10 @@ async def startup_event():
     print("🚀 Starting MoodTunes…")
 
     # 1. Connect MongoDB
-    await connect_to_mongodb()
+    try:
+        await connect_to_mongodb()
+    except Exception as e:
+        print(f"⚠️  MongoDB startup error: {e}. Continuing without database.")
 
     # 2. Load DeepFace / TensorFlow IN THREAD (non-blocking)
     

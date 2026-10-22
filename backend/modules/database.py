@@ -2,6 +2,16 @@
 modules/database.py
 MongoDB connection utilities and minimal helpers.
 """
+import sys
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional
 from datetime import datetime
@@ -11,6 +21,14 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 load_dotenv()
+
+# Fix for Docker / Hugging Face Spaces: public DNS fallback for mongodb+srv records
+try:
+    import dns.resolver
+    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
+    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1', '8.8.4.4']
+except Exception:
+    pass
 
 MONGODB_URL = os.getenv("MONGODB_URL", None)
 DATABASE_NAME = os.getenv("DATABASE_NAME", "moodtunes_ai")

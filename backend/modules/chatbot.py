@@ -21,29 +21,23 @@ class MusicChatbot:
         # Initialize Gemini
         gemini_api_key = os.getenv('GEMINI_API_KEY')
         if gemini_api_key:
-            genai.configure(api_key=gemini_api_key)
-            self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
+            try:
+                genai.configure(api_key=gemini_api_key)
+                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
+            except Exception:
+                self.gemini_model = None
         else:
             self.gemini_model = None
             
-        # Initialize Groq
-        groq_api_key = os.getenv('GROQ_API_KEY') or os.getenv('Groq_API_Key')
-        if groq_api_key:
-            try:
-                self.groq_client = Groq(api_key=groq_api_key)
-                print("✅ Groq client initialized")
-            except Exception as e:
-                print(f"❌ Groq init failed: {e}")
-                self.groq_client = None
-        else:
-            print("⚠️  GROQ_API_KEY not found")
-            self.groq_client = None
+        # Groq key (lazy-initialized to make server startup instant)
+        self.groq_api_key = os.getenv('GROQ_API_KEY') or os.getenv('Groq_API_Key')
+        self._groq_client = None
             
-        if not gemini_api_key and not groq_api_key:
+        if not gemini_api_key and not self.groq_api_key:
             raise ValueError("Either GEMINI_API_KEY or GROQ_API_KEY must be found in environment variables")
         
-        self.current_provider = 'groq' if self.groq_client else 'gemini'
-        print(f"🤖 Chatbot initialized with provider: {self.current_provider}")
+        self.current_provider = 'groq' if self.groq_api_key else 'gemini'
+        print(f"🤖 Chatbot ready (provider: {self.current_provider})")
         self.model = self.gemini_model
         self.chat = None
         self._cached_groq_model = None
@@ -142,6 +136,21 @@ You: "Here are popular Taylor Swift songs:
 Remember: Always use standard ASCII hyphen (-) between song and artist. Always include singer/artist name. Be helpful, friendly, and music-focused!"""
         
         self._initialize_chat()
+
+    @property
+    def groq_client(self):
+        """Lazy load Groq client so SSL / certifi loading doesn't delay startup"""
+        if self._groq_client is None and self.groq_api_key:
+            try:
+                self._groq_client = Groq(api_key=self.groq_api_key)
+            except Exception as e:
+                print(f"❌ Groq init failed: {e}")
+                self._groq_client = None
+        return self._groq_client
+
+    @groq_client.setter
+    def groq_client(self, value):
+        self._groq_client = value
 
     def _initialize_chat(self):
         """Initialize Gemini chat with system prompt"""
