@@ -463,6 +463,17 @@ class RecommendationEngine:
         }
     
     def _make_curated_song(self, title: str, artist: str, yt_id: str, mood: str, language: str) -> Song:
+        cache_key = f"{artist} {title}"
+        if cache_key in music_player.cache:
+            yt_id = music_player.cache[cache_key]
+        elif not yt_id or "_" in yt_id or len(yt_id) != 11:
+            try:
+                resolved = music_player.get_youtube_id(cache_key)
+                if resolved:
+                    yt_id = resolved
+            except Exception:
+                pass
+
         song_id = f"{artist}_{title}".replace(" ", "_").lower()[:50]
         return Song(
             id=song_id,

@@ -20,7 +20,7 @@ CURATED_CATALOG = {
             ("Hasi", "Ami Mishra", "tH3tN8w7u3o"),
             ("Ae Dil Hai Mushkil", "Arijit Singh", "6FURuLYrR_Q"),
             ("Thodi Der", "Farhan Saeed & Shreya Ghoshal", "V0m0g2z2x3s"),
-            ("Phir Le Aya Dil", "Arijit Singh", "w6x62v83r4k"),
+            ("Phir Le Aya Dil", "Arijit Singh", "k6BnSIs3XUQ"),
             ("Roke Na Ruke Naina", "Arijit Singh", "yK8a4u59g6s"),
             ("Duaa", "Arijit Singh & Nandini Srikar", "2Xn27_h90sk"),
             ("Khairiyat", "Arijit Singh", "9p2wZmOguqA"),
