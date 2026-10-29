@@ -450,4 +450,10 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("🎵 MoodTunes AI - Music Recommendation System")
     print("=" * 70)
-    uvicorn.run("main:app", host=Config.HOST, port=Config.PORT, reload=Config.RELOAD)
+    uvicorn.run(
+        "main:app",
+        host=Config.HOST,
+        port=Config.PORT,
+        reload=Config.RELOAD,
+        reload_excludes=[".venv*", "venv*", "cache*", "*.json", "__pycache__*"]
+    )
