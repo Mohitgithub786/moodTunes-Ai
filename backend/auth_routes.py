@@ -1,102 +1,50 @@
 """
-Authentication Endpoints - Add these to main.py
+Authentication Router
+Modular authentication endpoints for MoodTunes AI
 """
-
-# Add these imports at the top
+from fastapi import APIRouter, HTTPException, Depends
 from modules.auth import (
     UserSignup, UserLogin, TokenResponse, UserResponse,
-    hash_password, verify_password, create_access_token, get_current_user
+    create_access_token, get_current_user
 )
-from modules.database import (
-    connect_to_mongodb, close_mongodb_connection,
-    create_user, get_user_by_email, get_user_by_id
-)
+from modules.user_service import user_service
 
-# Add these to main.py after other imports
-@app.on_event("startup")
-async def startup_db():
-    """Connect to MongoDB on startup"""
-    await connect_to_mongodb()
-
-@app.on_event("shutdown")
-async def shutdown_db():
-    """Close MongoDB connection on shutdown"""
-    await close_mongodb_connection()
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# ---------------------- Authentication Routes ----------------------
-@app.post("/auth/signup", response_model=TokenResponse)
+@router.post("/signup", response_model=TokenResponse)
 async def signup(user_data: UserSignup):
     """Register a new user"""
-    # Check if user exists
-    existing_user = await get_user_by_email(user_data.email)
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    # Hash password
-    hashed_password = hash_password(user_data.password)
-    
-    # Create user
-    user = await create_user(user_data.email, hashed_password, user_data.full_name)
-    
-    # Create token
-    access_token = create_access_token(data={"user_id": user["_id"], "email": user["email"]})
-    
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserResponse(
-            id=user["_id"],
-            email=user["email"],
-            full_name=user["full_name"],
-            created_at=user["created_at"]
-        )
+    user = await user_service.create_user(
+        email=user_data.email,
+        password=user_data.password,
+        full_name=user_data.full_name
     )
+    access_token = create_access_token({"user_id": user["id"], "email": user["email"]})
+    return TokenResponse(access_token=access_token, user=UserResponse(**user))
 
 
-@app.post("/auth/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse)
 async def login(user_data: UserLogin):
-    """Login user"""
-    # Get user
-    user = await get_user_by_email(user_data.email)
+    """Authenticate and login user"""
+    user = await user_service.authenticate_user(user_data.email, user_data.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    # Verify password
-    if not verify_password(user_data.password, user["password"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    # Create token
-    access_token = create_access_token(data={"user_id": user["_id"], "email": user["email"]})
-    
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserResponse(
-            id=user["_id"],
-            email=user["email"],
-            full_name=user["full_name"],
-            created_at=user["created_at"]
-        )
-    )
+
+    access_token = create_access_token({"user_id": user["id"], "email": user["email"]})
+    return TokenResponse(access_token=access_token, user=UserResponse(**user))
 
 
-@app.get("/auth/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
-    """Get current user info"""
-    user = await get_user_by_id(current_user["user_id"])
+    """Get profile of current authenticated user"""
+    user = await user_service.get_user_by_id(current_user["user_id"])
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    return UserResponse(
-        id=user["_id"],
-        email=user["email"],
-        full_name=user["full_name"],
-        created_at=user["created_at"]
-    )
+    return UserResponse(**user)
 
 
-@app.post("/auth/logout")
+@router.post("/logout")
 async def logout():
-    """Logout user (client should delete token)"""
+    """Logout user"""
     return {"message": "Logged out successfully"}
