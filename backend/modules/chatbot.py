@@ -34,10 +34,11 @@ class MusicChatbot:
         self._groq_client = None
             
         if not gemini_api_key and not self.groq_api_key:
-            raise ValueError("Either GEMINI_API_KEY or GROQ_API_KEY must be found in environment variables")
-        
-        self.current_provider = 'groq' if self.groq_api_key else 'gemini'
-        print(f"🤖 Chatbot ready (provider: {self.current_provider})")
+            print("⚠️  Chatbot: No GEMINI_API_KEY or GROQ_API_KEY found. Chatbot will run in fallback mode.")
+            self.current_provider = None
+        else:
+            self.current_provider = 'groq' if self.groq_api_key else 'gemini'
+            print(f"🤖 Chatbot ready (provider: {self.current_provider})")
         self.model = self.gemini_model
         self.chat = None
         self._cached_groq_model = None
@@ -308,7 +309,7 @@ Remember: Always use standard ASCII hyphen (-) between song and artist. Always i
             elif self.groq_client:
                 bot_response = self._get_groq_response(user_message)
             else:
-                raise Exception("No API provider available")
+                bot_response = "To use the AI chatbot, please configure GEMINI_API_KEY or GROQ_API_KEY in your backend .env file."
 
             # Add to history
             self.conversation_history.append({

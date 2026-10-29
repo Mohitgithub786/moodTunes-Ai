@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+
+# Environment Variables
+.env
+*.env
+!.env.example
+!.env.auth
+
+# Cache & Build
+__pycache__/
+*.py[cod]
+dist/
+build/
+.cache/
+
+# IDE & Tools
+.claude/
+.DS_Store
+Thumbs.db
