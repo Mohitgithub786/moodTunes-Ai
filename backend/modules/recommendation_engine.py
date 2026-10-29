@@ -11,6 +11,7 @@ from datetime import datetime
 from collections import defaultdict
 import re
 import urllib.parse
+from .curated_catalog import CURATED_CATALOG
 
 
 class RecommendationEngine:
@@ -461,6 +462,114 @@ class RecommendationEngine:
             "history": history
         }
     
+    def _make_curated_song(self, title: str, artist: str, yt_id: str, mood: str, language: str) -> Song:
+        song_id = f"{artist}_{title}".replace(" ", "_").lower()[:50]
+        return Song(
+            id=song_id,
+            name=title,
+            artist=artist,
+            lastfm_url=f"https://www.last.fm/music/{urllib.parse.quote(artist)}/_/{urllib.parse.quote(title)}",
+            youtube_id=yt_id,
+            preview_url=f"https://www.youtube.com/watch?v={yt_id}" if yt_id else None,
+            album=None,
+            duration_ms=None,
+            listeners=None,
+            playcount=None,
+            tags=[mood, language],
+            audio_features={}
+        )
+
+    def _get_fallback_catalog_recommendations(
+        self, request: PersonalizedRecommendationRequest, mood: str, language: str,
+        favorite_singers: list, favorite_songs: list
+    ) -> Dict:
+        lang_catalog = CURATED_CATALOG.get(language, CURATED_CATALOG['english'])
+        mood_songs = lang_catalog.get(mood, lang_catalog.get('happy', []))
+
+        final_list = []
+        added = set()
+        cat1_count = 0
+
+        # 1. Matching artist songs if favorite singers provided
+        if favorite_singers:
+            for title, artist, yt_id in mood_songs:
+                for fav in favorite_singers:
+                    if fav.lower() in artist.lower() or artist.lower() in fav.lower():
+                        key = f"{title}-{artist}".lower()
+                        if key not in added:
+                            added.add(key)
+                            final_list.append(self._make_curated_song(title, artist, yt_id, mood, language))
+                            cat1_count += 1
+                            break
+
+        # 2. Add remaining mood songs
+        limit = request.limit or 20
+        for title, artist, yt_id in mood_songs:
+            key = f"{title}-{artist}".lower()
+            if key not in added:
+                added.add(key)
+                final_list.append(self._make_curated_song(title, artist, yt_id, mood, language))
+                if len(final_list) >= limit:
+                    break
+
+        # If still less than limit, borrow from another mood in same language
+        if len(final_list) < limit:
+            for other_mood, other_songs in lang_catalog.items():
+                if other_mood == mood:
+                    continue
+                for title, artist, yt_id in other_songs:
+                    key = f"{title}-{artist}".lower()
+                    if key not in added:
+                        added.add(key)
+                        final_list.append(self._make_curated_song(title, artist, yt_id, mood, language))
+                        if len(final_list) >= limit:
+                            break
+                if len(final_list) >= limit:
+                    break
+
+        for s in final_list:
+            try:
+                self.user_history[request.user_id].append({
+                    'song': s.dict() if hasattr(s, 'dict') else s.__dict__,
+                    'mood': mood,
+                    'language': language,
+                    'timestamp': datetime.now().isoformat(),
+                    'source': 'curated_fallback'
+                })
+            except Exception:
+                pass
+
+        return {
+            "songs": final_list,
+            "mood": mood,
+            "language": language,
+            "total": len(final_list),
+            "distribution": {
+                "artist_based": cat1_count,
+                "language_mood": len(final_list) - cat1_count,
+                "similar_tracks": 0,
+                "fallback": len(final_list)
+            },
+            "preferences_applied": {
+                "language": language,
+                "favorite_artists": favorite_singers,
+                "favorite_songs": favorite_songs
+            }
+        }
+
+    def _get_fallback_basic_recommendations(self, request: RecommendationRequest, mood: str) -> Dict:
+        lang_catalog = CURATED_CATALOG.get('hindi', CURATED_CATALOG['english'])
+        mood_songs = lang_catalog.get(mood, lang_catalog.get('happy', []))
+        limit = request.limit or 20
+        final_list = []
+        for title, artist, yt_id in mood_songs[:limit]:
+            final_list.append(self._make_curated_song(title, artist, yt_id, mood, 'hindi'))
+        return {
+            "songs": final_list,
+            "mood": mood,
+            "total": len(final_list)
+        }
+
     def get_personalized_recommendations(self, request: PersonalizedRecommendationRequest) -> Dict:
         """
         Personalized recommendations with FUZZY MATCHING:
@@ -469,9 +578,6 @@ class RecommendationEngine:
         - 4: Similar + Mood
         - Rest: Fallback
         """
-        if not self.lastfm:
-            raise HTTPException(status_code=503, detail="Last.fm not configured")
-        
         mood = (request.mood or '').lower()
         if not MoodDetector.validate_mood(mood):
             raise HTTPException(status_code=400, detail=f"Invalid mood: {mood}")
@@ -519,8 +625,12 @@ class RecommendationEngine:
         print(f"Favorite Singers (corrected): {corrected_singers}")
         print(f"Favorite Songs: {favorite_songs}")
         print(f"Target: {request.limit} songs")
-        print(f"{'='*60}\n")
-        
+        if not self.lastfm:
+            print("⚠️  Last.fm not configured: using curated fallback recommendations")
+            return self._get_fallback_catalog_recommendations(
+                request, mood, language, favorite_singers, favorite_songs
+            )
+
         all_songs = []
         added = set()
         
@@ -729,13 +839,13 @@ class RecommendationEngine:
         }
     
     def get_basic_recommendations(self, request: RecommendationRequest) -> Dict:
-        """Basic mood-based recommendations"""
-        if not self.lastfm:
-            raise HTTPException(status_code=503, detail="Last.fm not configured")
-        
         mood = (request.mood or '').lower()
         if not MoodDetector.validate_mood(mood):
             raise HTTPException(status_code=400, detail=f"Invalid mood: {mood}")
+        
+        if not self.lastfm:
+            print("⚠️  Last.fm not configured: using curated fallback recommendations")
+            return self._get_fallback_basic_recommendations(request, mood)
         mood_tags = MoodDetector.get_mood_tags(mood)
         recommendations = []
         added = set()
@@ -778,11 +888,28 @@ class RecommendationEngine:
         try:
             print(f"\n🔍 Direct YouTube Search: '{query}'")
             
-            # Search YouTube directly
             youtube = Config.get_youtube()
             if not youtube:
-                print("❌ YouTube API not configured")
-                raise HTTPException(status_code=503, detail="YouTube API not configured")
+                print("⚠️  YouTube API not configured: searching via direct YouTube fallback")
+                yt_id = music_player.get_youtube_id_direct(query)
+                if yt_id:
+                    return [
+                        Song(
+                            id=f"yt_{yt_id}",
+                            name=query,
+                            artist="YouTube",
+                            youtube_id=yt_id,
+                            preview_url=f"https://www.youtube.com/watch?v={yt_id}",
+                            lastfm_url=None,
+                            album=None,
+                            duration_ms=None,
+                            listeners=None,
+                            playcount=None,
+                            tags=[],
+                            audio_features={}
+                        )
+                    ]
+                return []
             
             try:
                 search_response = youtube.search().list(
